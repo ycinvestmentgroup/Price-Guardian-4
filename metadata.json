@@ -1,0 +1,7 @@
+{
+  "name": "Price Guardian",
+  "description": "Secure invoice auditing and procurement intelligence platform with automated price tracking and accounts payable management.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

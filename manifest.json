@@ -1,0 +1,23 @@
+{
+  "name": "Price Guardian",
+  "short_name": "P-Guardian",
+  "description": "AI-Powered Invoice Auditing & Price Tracking",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/5839/5839845.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/5839/5839845.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}
