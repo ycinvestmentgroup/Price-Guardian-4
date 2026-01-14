@@ -1,8 +1,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
 export const extractInvoiceData = async (base64Data: string, mimeType: string = 'application/pdf') => {
-  // Upgrading to Pro for complex structural reasoning on multi-page/complex invoices
-  const model = 'gemini-3-pro-preview';
+  // Using Flash model to avoid quota limits (429) while maintaining high speed and accuracy
+  const model = 'gemini-3-flash-preview';
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
@@ -31,7 +31,6 @@ export const extractInvoiceData = async (base64Data: string, mimeType: string = 
         ],
       },
       config: {
-        thinkingConfig: { thinkingBudget: 1024 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
