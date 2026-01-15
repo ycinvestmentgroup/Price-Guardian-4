@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
 export const extractInvoiceData = async (base64Data: string, mimeType: string = 'application/pdf') => {
-  // Using Flash model to avoid quota limits (429) while maintaining high speed and accuracy
+  // Use gemini-3-flash-preview for extraction tasks
   const model = 'gemini-3-flash-preview';
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -20,13 +20,13 @@ export const extractInvoiceData = async (base64Data: string, mimeType: string = 
             text: `Audit this procurement document. Extract exactly into the specified JSON format.
             Rules:
             1. Supplier Name: Extract the official business name.
-            2. Line Items: Extract name, quantity, unit price, and subtotal for every row in the table.
-            3. Totals: Capture GST (tax) and the final Grand Total.
+            2. Line Items: Extract name, quantity, unit price, and subtotal.
+            3. Totals: Capture GST (tax) and Grand Total.
             4. Metadata: Invoice number, date (YYYY-MM-DD), and due date (YYYY-MM-DD).
-            5. Payment Details: Extract Bank Account details. Look specifically for 'EFT', 'BSB', 'Account Number', 'Acc No', 'Electronic Funds Transfer', or 'Payable to'. Also extract Credit Terms (e.g., 30 days, 7 days from invoice, etc).
-            6. Business Info: Extract ABN (Australian Business Number) or Tax ID, physical address, primary email, and telephone number.
-            7. Document Type determination: Decide if this is an 'invoice', 'credit_note', 'debit_note', or 'quote'.
-            8. If a field is missing, use null for strings and 0 for numbers.`,
+            5. Payment Details: Extract Bank Account details (EFT/BSB/Acc).
+            6. Business Info: Extract ABN (Australian Business Number), physical address, email, and telephone.
+            7. Credit Terms: Extract the payment window (e.g., 30 days).
+            8. Document Type: Decide if 'invoice', 'credit_note', 'debit_note', or 'quote'.`,
           },
         ],
       },
@@ -35,10 +35,7 @@ export const extractInvoiceData = async (base64Data: string, mimeType: string = 
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            docType: { 
-              type: Type.STRING, 
-              description: "Must be one of: 'invoice', 'credit_note', 'debit_note', 'quote'" 
-            },
+            docType: { type: Type.STRING },
             supplierName: { type: Type.STRING },
             date: { type: Type.STRING },
             dueDate: { type: Type.STRING },
@@ -65,19 +62,17 @@ export const extractInvoiceData = async (base64Data: string, mimeType: string = 
               },
             },
           },
-          required: ["docType", "supplierName", "date", "dueDate", "invoiceNumber", "totalAmount", "items"],
+          required: ["docType", "supplierName", "date", "invoiceNumber", "totalAmount", "items"],
         },
       },
     });
 
+    // Access .text property directly as per @google/genai guidelines
     const resultText = response.text;
-    if (!resultText) {
-      throw new Error("Empty response from AI. The document might be unreadable or empty.");
-    }
-
+    if (!resultText) throw new Error("Empty response from AI.");
     return JSON.parse(resultText);
   } catch (error: any) {
-    console.error("Gemini Extraction Error:", error);
-    throw new Error(error.message || "Auditing failed due to a network or parsing error.");
+    console.error("Extraction Error:", error);
+    throw new Error(error.message || "Auditing failed.");
   }
 };
