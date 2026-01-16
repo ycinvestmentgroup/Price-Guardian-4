@@ -5,6 +5,7 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 /**
  * Extracts invoice data from a base64 string using Gemini AI.
  * Implements exponential backoff to handle 429 (Quota Exceeded) errors gracefully.
+ * Now handles both PDF and Image MIME types explicitly.
  */
 export const extractInvoiceData = async (
   base64Data: string, 
@@ -12,8 +13,14 @@ export const extractInvoiceData = async (
   retries = 3, 
   delay = 8000
 ) => {
+  // Use gemini-3-flash-preview as it has excellent OCR capabilities for images
   const modelName = 'gemini-3-flash-preview';
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+  // Ensure we have a valid MIME type for images or PDF
+  const validMimeType = mimeType.startsWith('image/') || mimeType === 'application/pdf' 
+    ? mimeType 
+    : 'application/pdf';
 
   try {
     const response = await ai.models.generateContent({
@@ -22,21 +29,27 @@ export const extractInvoiceData = async (
         parts: [
           {
             inlineData: {
-              mimeType: mimeType || 'application/pdf',
+              mimeType: validMimeType,
               data: base64Data,
             },
           },
           {
-            text: `Audit this procurement document. Extract exactly into the specified JSON format.
-            Rules:
-            1. Supplier Name: Official business name.
-            2. Line Items: Extract name, quantity, unit price, and subtotal.
-            3. Totals: Capture GST amount and Grand Total.
-            4. Metadata: Invoice number, date (YYYY-MM-DD), and due date (YYYY-MM-DD).
-            5. Payment: Bank Account details (EFT/BSB/Acc).
-            6. Business: ABN, physical address, email, and telephone.
-            7. Terms: Payment window (e.g., 30 days).
-            8. Type: 'invoice', 'credit_note', 'debit_note', or 'quote'.`,
+            text: `Analyze this procurement document (invoice/receipt). 
+            Perform high-accuracy OCR to extract the following data into the specified JSON format.
+            
+            JSON Structure Rules:
+            1. supplierName: Legal business name found at the top.
+            2. docType: Identify if it is an 'invoice', 'credit_note', 'debit_note', or 'quote'.
+            3. items: Array of objects with 'name', 'quantity' (number), 'unitPrice' (number), and 'total' (number).
+            4. totalAmount: Final grand total inclusive of tax.
+            5. gstAmount: Total tax amount (GST/VAT).
+            6. invoiceNumber: Unique reference string.
+            7. date: Document date in YYYY-MM-DD.
+            8. dueDate: Payment due date in YYYY-MM-DD.
+            9. bankAccount: Any EFT, BSB, or Account number found.
+            10. businessInfo: Extract ABN, Address, Tel, and Email if visible.
+            
+            Return ONLY a valid JSON object. Do not include markdown formatting like \`\`\`json.`,
           },
         ],
       },
@@ -78,8 +91,18 @@ export const extractInvoiceData = async (
     });
 
     const resultText = response.text;
-    if (!resultText) throw new Error("Empty response from AI.");
-    return JSON.parse(resultText);
+    
+    if (!resultText) {
+      // If response.text is empty, check if we got candidates but no text (Safety block)
+      throw new Error("Guardian AI was unable to read this document clearly. Please ensure the image is bright and the text is legible.");
+    }
+
+    try {
+      return JSON.parse(resultText);
+    } catch (parseError) {
+      console.error("JSON Parse Error:", resultText);
+      throw new Error("Audit failed: The AI response format was invalid. Please try a clearer photo.");
+    }
 
   } catch (error: any) {
     const isQuotaError = 
@@ -91,15 +114,14 @@ export const extractInvoiceData = async (
     if (isQuotaError && retries > 0) {
       console.warn(`Guardian Intelligence is at capacity. Retrying in ${delay / 1000}s... (${retries} attempts remaining)`);
       await wait(delay);
-      // Double the delay for the next attempt (exponential backoff)
-      return extractInvoiceData(base64Data, mimeType, retries - 1, delay * 2);
+      return extractInvoiceData(base64Data, validMimeType, retries - 1, delay * 2);
     }
 
     if (isQuotaError) {
-      throw new Error("Audit capacity limit reached. The Free Tier of Gemini has a strict per-minute limit. Please wait 1-2 minutes before trying again.");
+      throw new Error("Audit capacity limit reached. Please wait 1-2 minutes before trying again or use a smaller batch.");
     }
 
-    console.error("Extraction Error:", error);
-    throw new Error(error.message || "Auditing failed.");
+    console.error("Extraction Error Detail:", error);
+    throw new Error(error.message || "Auditing failed due to a processing error.");
   }
 };
