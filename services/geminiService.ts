@@ -1,13 +1,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-export const extractInvoiceData = async (base64Data: string, mimeType: string = 'application/pdf') => {
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+export const extractInvoiceData = async (base64Data: string, mimeType: string = 'application/pdf', retries = 2) => {
   // Use gemini-3-flash-preview for extraction tasks
-  const model = 'gemini-3-flash-preview';
+  const modelName = 'gemini-3-flash-preview';
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
     const response = await ai.models.generateContent({
-      model,
+      model: modelName,
       contents: {
         parts: [
           {
@@ -67,11 +69,21 @@ export const extractInvoiceData = async (base64Data: string, mimeType: string = 
       },
     });
 
-    // Access .text property directly as per @google/genai guidelines
     const resultText = response.text;
     if (!resultText) throw new Error("Empty response from AI.");
     return JSON.parse(resultText);
+
   } catch (error: any) {
+    // Handle Quota Exceeded (429) specifically
+    if (error.status === 'RESOURCE_EXHAUSTED' || error.message?.includes('429') || error.message?.includes('quota')) {
+      if (retries > 0) {
+        console.warn(`Quota hit. Retrying in 5 seconds... (${retries} retries left)`);
+        await wait(5000); 
+        return extractInvoiceData(base64Data, mimeType, retries - 1);
+      }
+      throw new Error("Guardian Intelligence is currently at capacity. Please wait 60 seconds and try again.");
+    }
+
     console.error("Extraction Error:", error);
     throw new Error(error.message || "Auditing failed.");
   }
