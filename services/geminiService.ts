@@ -2,8 +2,16 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export const extractInvoiceData = async (base64Data: string, mimeType: string = 'application/pdf', retries = 2) => {
-  // Use gemini-3-flash-preview for extraction tasks
+/**
+ * Extracts invoice data from a base64 string using Gemini AI.
+ * Implements exponential backoff to handle 429 (Quota Exceeded) errors gracefully.
+ */
+export const extractInvoiceData = async (
+  base64Data: string, 
+  mimeType: string = 'application/pdf', 
+  retries = 3, 
+  delay = 8000
+) => {
   const modelName = 'gemini-3-flash-preview';
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -21,14 +29,14 @@ export const extractInvoiceData = async (base64Data: string, mimeType: string = 
           {
             text: `Audit this procurement document. Extract exactly into the specified JSON format.
             Rules:
-            1. Supplier Name: Extract the official business name.
+            1. Supplier Name: Official business name.
             2. Line Items: Extract name, quantity, unit price, and subtotal.
-            3. Totals: Capture GST (tax) and Grand Total.
+            3. Totals: Capture GST amount and Grand Total.
             4. Metadata: Invoice number, date (YYYY-MM-DD), and due date (YYYY-MM-DD).
-            5. Payment Details: Extract Bank Account details (EFT/BSB/Acc).
-            6. Business Info: Extract ABN (Australian Business Number), physical address, email, and telephone.
-            7. Credit Terms: Extract the payment window (e.g., 30 days).
-            8. Document Type: Decide if 'invoice', 'credit_note', 'debit_note', or 'quote'.`,
+            5. Payment: Bank Account details (EFT/BSB/Acc).
+            6. Business: ABN, physical address, email, and telephone.
+            7. Terms: Payment window (e.g., 30 days).
+            8. Type: 'invoice', 'credit_note', 'debit_note', or 'quote'.`,
           },
         ],
       },
@@ -74,14 +82,21 @@ export const extractInvoiceData = async (base64Data: string, mimeType: string = 
     return JSON.parse(resultText);
 
   } catch (error: any) {
-    // Handle Quota Exceeded (429) specifically
-    if (error.status === 'RESOURCE_EXHAUSTED' || error.message?.includes('429') || error.message?.includes('quota')) {
-      if (retries > 0) {
-        console.warn(`Quota hit. Retrying in 5 seconds... (${retries} retries left)`);
-        await wait(5000); 
-        return extractInvoiceData(base64Data, mimeType, retries - 1);
-      }
-      throw new Error("Guardian Intelligence is currently at capacity. Please wait 60 seconds and try again.");
+    const isQuotaError = 
+      error.status === 'RESOURCE_EXHAUSTED' || 
+      error.message?.includes('429') || 
+      error.message?.includes('quota') ||
+      error.message?.includes('capacity');
+
+    if (isQuotaError && retries > 0) {
+      console.warn(`Guardian Intelligence is at capacity. Retrying in ${delay / 1000}s... (${retries} attempts remaining)`);
+      await wait(delay);
+      // Double the delay for the next attempt (exponential backoff)
+      return extractInvoiceData(base64Data, mimeType, retries - 1, delay * 2);
+    }
+
+    if (isQuotaError) {
+      throw new Error("Audit capacity limit reached. The Free Tier of Gemini has a strict per-minute limit. Please wait 1-2 minutes before trying again.");
     }
 
     console.error("Extraction Error:", error);
